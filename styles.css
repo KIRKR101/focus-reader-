@@ -34,6 +34,30 @@ body {
   animation: rise 0.7s ease-out;
 }
 
+.support-banner {
+  display: block;
+  text-align: center;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.support-banner:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--accent);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.support-banner span {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .hero {
   display: flex;
   justify-content: space-between;

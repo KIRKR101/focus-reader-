@@ -22,9 +22,10 @@ A free speed reading trainer that helps you build your WPM with auto-pacing.
 - **RSVP Reading** - Rapid Serial Visual Presentation with center focus point
 - **120-900 WPM** - Adjustable speed with horizontal slider
 - **Auto Pace** - Start slow, automatically build to your target speed
-- **PDF Support** - Upload PDFs with optional OCR for scanned documents
+- **PDF & EPUB Support** - Upload PDFs (with optional OCR) or EPUB ebooks
+- **Context View** - Pause and zoom out to see the full paragraph, navigate between sections
 - **Document Library** - Save and resume your reading progress
-- **Keyboard Controls** - Space (play/pause), R (reset), ← → (step through words)
+- **Keyboard Controls** - Space (play/pause), R (reset), ← → (step/navigate), C (context)
 - **Fullscreen Mode** - Distraction-free reading
 - **Works Offline** - No account needed, data stays in your browser
 
@@ -36,8 +37,10 @@ A free speed reading trainer that helps you build your WPM with auto-pacing.
 |-----|--------|
 | `Space` | Start / Pause |
 | `R` | Reset |
-| `←` | Previous word |
-| `→` | Next word |
+| `←` | Previous word (or prev paragraph in context mode) |
+| `→` | Next word (or next paragraph in context mode) |
+| `C` | Toggle context view (when paused) |
+| `Esc` | Exit context view |
 
 ---
 

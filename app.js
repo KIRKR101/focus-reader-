@@ -835,10 +835,22 @@ function buildParagraphsData() {
     contextParagraphs = [];
     return;
   }
-  // Split into paragraphs (by double newline or single newline)
-  const rawParagraphs = originalText.split(/\n\s*\n|\n/).filter(p => p.trim());
 
+  // Normalize text: convert single newlines to spaces, keep double newlines as paragraph breaks
+  // This handles PDFs where every line ends with \n but they're part of the same paragraph
+  const normalized = originalText
+    .replace(/\r\n/g, '\n')           // Normalize Windows line endings
+    .replace(/\n{3,}/g, '\n\n')       // Collapse multiple newlines to double
+    .replace(/([^\n])\n([^\n])/g, '$1 $2');  // Single newlines become spaces
+
+  // Split into paragraphs by double newline
+  const rawParagraphs = normalized.split(/\n\n+/).filter(p => p.trim());
+
+  // Build paragraph data with word offsets
+  // We need to map back to the original word indices from tokenize(originalText)
+  const allWords = words; // Use the global words array that was tokenized from originalText
   let wordOffset = 0;
+
   contextParagraphs = rawParagraphs.map((text, index) => {
     const paraWords = tokenize(text);
     const startIndex = wordOffset;
@@ -851,6 +863,17 @@ function buildParagraphsData() {
       index
     };
   });
+
+  // If word counts don't match, fall back to treating entire text as one paragraph
+  if (wordOffset !== allWords.length) {
+    contextParagraphs = [{
+      text: originalText,
+      words: allWords,
+      startIndex: 0,
+      endIndex: allWords.length - 1,
+      index: 0
+    }];
+  }
 }
 
 function findParagraphIndexForWord(wordIndex) {

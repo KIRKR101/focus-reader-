@@ -13,23 +13,40 @@ const readerPanel = document.getElementById("readerPanel");
 const readerControls = document.getElementById("readerControls");
 const toggleControlsBtn = document.getElementById("toggleControlsBtn");
 const fullscreenBtn = document.getElementById("fullscreenBtn");
+const customizeBtn = document.getElementById("customizeBtn");
+const customizePanel = document.getElementById("customizePanel");
 const readerDoc = document.getElementById("readerDoc");
 const actionButtons = document.querySelectorAll("[data-action]");
 const pauseButtons = document.querySelectorAll('[data-action="pause"]');
 const pdfInput = document.getElementById("pdfInput");
 const pdfStatus = document.getElementById("pdfStatus");
+const epubInput = document.getElementById("epubInput");
+const epubStatus = document.getElementById("epubStatus");
 const ocrToggle = document.getElementById("ocrToggle");
 const libraryList = document.getElementById("libraryList");
 const libraryEmpty = document.getElementById("libraryEmpty");
 const clearLibraryBtn = document.getElementById("clearLibraryBtn");
+const historyLastRead = document.getElementById("historyLastRead");
+const historySessions = document.getElementById("historySessions");
+const historyTime = document.getElementById("historyTime");
 const dropOverlay = document.getElementById("dropOverlay");
 const inputPanel = document.querySelector(".input-panel");
 const pdfjsLib = window.pdfjsLib;
+const epubjsLib = window.ePub;
+const focusHighlightToggle = document.getElementById("focusHighlightToggle");
+const focusColorPicker = document.getElementById("focusColorPicker");
+const focusColorButtons = document.querySelectorAll("[data-focus-color]");
 const autoPaceToggle = document.getElementById("autoPaceToggle");
 const autoPaceSettings = document.getElementById("autoPaceSettings");
 const startPaceInput = document.getElementById("startPace");
 const maxPaceInput = document.getElementById("maxPace");
 const liveWpmEl = document.getElementById("liveWpm");
+const contextView = document.getElementById("contextView");
+const contextToggle = document.getElementById("contextToggle");
+const contextNav = document.getElementById("contextNav");
+const prevParagraphBtn = document.getElementById("prevParagraph");
+const nextParagraphBtn = document.getElementById("nextParagraph");
+const reader = document.querySelector(".reader");
 
 let words = [];
 let currentIndex = 0;
@@ -39,6 +56,7 @@ let wpm = Number(speedRange.value);
 let isPseudoFullscreen = false;
 let hasStarted = false;
 let isPdfLoading = false;
+let isEpubLoading = false;
 let activeDoc = null;
 let isSettingText = false;
 let isOcrEnabled = false;
@@ -50,6 +68,13 @@ let isAutoPaceEnabled = false;
 let autoPaceStartWpm = 150;
 let autoPaceMaxWpm = 400;
 const AUTO_PACE_WORDS_PER_STEP = 25;
+let sessionStartAt = null;
+let focusHighlightEnabled = true;
+let focusColor = "#ff3b30";
+let isContextViewActive = false;
+let originalText = "";
+let contextParagraphs = [];
+let currentParagraphIndex = 0;
 
 const PDF_WORKER_SRC =
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
@@ -58,6 +83,7 @@ const TESSERACT_SRC =
 const DB_NAME = "focus-reader";
 const DB_VERSION = 1;
 const STORE_NAME = "documents";
+const PREFS_KEY = "focusReaderPrefs";
 
 if (pdfjsLib && pdfjsLib.GlobalWorkerOptions) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
@@ -184,6 +210,105 @@ function formatTimestamp(timestamp) {
   });
 }
 
+function parseHtmlToText(html) {
+  if (!html) {
+    return "";
+  }
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    return doc.body ? doc.body.textContent || "" : "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function formatDuration(ms) {
+  if (!ms || ms <= 0) {
+    return "0m";
+  }
+  const totalSeconds = Math.round(ms / 1000);
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (totalMinutes > 0) {
+    return `${totalMinutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
+function loadPrefs() {
+  if (!("localStorage" in window)) {
+    return {};
+  }
+  try {
+    const raw = window.localStorage.getItem(PREFS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    console.warn(error);
+    return {};
+  }
+}
+
+function savePrefs() {
+  if (!("localStorage" in window)) {
+    return;
+  }
+  const payload = {
+    focusHighlightEnabled,
+    focusColor,
+  };
+  try {
+    window.localStorage.setItem(PREFS_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+function applyFocusColor() {
+  const root = document.documentElement;
+  const computed = window.getComputedStyle(root);
+  const textColor = computed.getPropertyValue("--text").trim() || "#ffffff";
+  const applied = focusHighlightEnabled ? focusColor : textColor;
+  root.style.setProperty("--focus", applied);
+  if (focusColorPicker) {
+    focusColorPicker.disabled = !focusHighlightEnabled;
+  }
+}
+
+function applyPrefs(prefs = {}) {
+  if (typeof prefs.focusHighlightEnabled === "boolean") {
+    focusHighlightEnabled = prefs.focusHighlightEnabled;
+  }
+  if (prefs.focusColor) {
+    focusColor = prefs.focusColor;
+  }
+  applyFocusColor();
+  if (focusHighlightToggle) {
+    focusHighlightToggle.checked = focusHighlightEnabled;
+  }
+  if (focusColorPicker) {
+    focusColorPicker.value = focusColor;
+  }
+  renderWordAtIndex(currentIndex);
+}
+
+function setFocusHighlightEnabled(enabled) {
+  focusHighlightEnabled = Boolean(enabled);
+  applyFocusColor();
+  savePrefs();
+}
+
+function setFocusColor(nextColor) {
+  focusColor = nextColor;
+  applyFocusColor();
+  savePrefs();
+}
+
 function tokenize(text) {
   return text.trim().match(/\S+/g) ?? [];
 }
@@ -201,6 +326,21 @@ function updateReaderDocLabel() {
     return;
   }
   readerDoc.textContent = "No document loaded";
+}
+
+function updateHistoryPanel() {
+  if (!historyLastRead || !historySessions || !historyTime) {
+    return;
+  }
+  if (!activeDoc) {
+    historyLastRead.textContent = "—";
+    historySessions.textContent = "0";
+    historyTime.textContent = "0m";
+    return;
+  }
+  historyLastRead.textContent = formatTimestamp(activeDoc.lastReadAt);
+  historySessions.textContent = `${activeDoc.sessions || 0}`;
+  historyTime.textContent = formatDuration(activeDoc.totalReadMs || 0);
 }
 
 function getProgressPercent(index, total) {
@@ -226,12 +366,22 @@ function createDocumentFromText(text, options = {}) {
     updatedAt: now,
     lastReadAt: null,
     wpm,
+    sessions: 0,
+    totalReadMs: 0,
     meta: options.meta || {},
   };
 }
 
 function applyDocumentState(doc, options = {}) {
+  if (activeDoc && sessionStartAt) {
+    endSession();
+  }
   activeDoc = doc;
+  sessionStartAt = null;
+  if (activeDoc) {
+    activeDoc.sessions = activeDoc.sessions || 0;
+    activeDoc.totalReadMs = activeDoc.totalReadMs || 0;
+  }
   if (docTitle && doc) {
     docTitle.value = doc.title || "";
   }
@@ -240,16 +390,22 @@ function applyDocumentState(doc, options = {}) {
     textInput.value = doc.text;
     isSettingText = false;
   }
+  originalText = doc ? (doc.text || "") : "";
   words = doc ? tokenize(doc.text || "") : [];
   currentIndex = doc ? Math.min(doc.lastIndex || 0, words.length) : 0;
   updateStats();
-  renderWord(words[currentIndex] || "");
+  if (words.length) {
+    renderWordAtIndex(currentIndex);
+  } else {
+    renderWord("");
+  }
   if (doc && typeof doc.wpm === "number") {
     wpm = doc.wpm;
     speedRange.value = wpm.toString();
     updateDial();
   }
   updateReaderDocLabel();
+  updateHistoryPanel();
   updatePlayStateUI();
   scheduleLibraryRefresh();
 }
@@ -295,7 +451,9 @@ async function refreshLibrary() {
     const meta = document.createElement("p");
     meta.className = "library-meta";
     const progress = getProgressPercent(doc.lastIndex || 0, doc.wordCount || 0);
-    meta.textContent = `${progress}% | ${doc.wordCount || 0} words | ${formatTimestamp(doc.lastReadAt)}`;
+    const sessions = doc.sessions || 0;
+    const timeSpent = formatDuration(doc.totalReadMs || 0);
+    meta.textContent = `${progress}% | ${doc.wordCount || 0} words | ${formatTimestamp(doc.lastReadAt)} | ${sessions} sessions | ${timeSpent}`;
     info.appendChild(name);
     info.appendChild(meta);
 
@@ -371,10 +529,13 @@ async function saveActiveDocumentProgress() {
   activeDoc.updatedAt = Date.now();
   activeDoc.lastReadAt = Date.now();
   activeDoc.wpm = wpm;
+  activeDoc.sessions = activeDoc.sessions || 0;
+  activeDoc.totalReadMs = activeDoc.totalReadMs || 0;
   if (!activeDoc.title || !activeDoc.title.trim()) {
     activeDoc.title = deriveTitle(activeDoc.text || "") || "Untitled";
   }
   await dbPut(activeDoc);
+  updateHistoryPanel();
   scheduleLibraryRefresh();
 }
 
@@ -401,6 +562,8 @@ async function ensureActiveDocumentFromText() {
     if (docTitle && docTitle.value.trim()) {
       doc.title = docTitle.value.trim();
     }
+    doc.sessions = doc.sessions || 0;
+    doc.totalReadMs = doc.totalReadMs || 0;
   }
   applyDocumentState(doc, { setText: false });
   await dbPut(doc);
@@ -428,6 +591,28 @@ function updateLiveWpm() {
   }
 }
 
+function jumpWords(amount) {
+  if (!words.length) return;
+  const wasPlaying = isPlaying;
+  if (wasPlaying) {
+    pauseReading();
+  }
+  const nextIndex = Math.min(
+    words.length - 1,
+    Math.max(0, currentIndex + amount),
+  );
+  currentIndex = nextIndex;
+  renderWordAtIndex(currentIndex);
+  updateStats();
+  scheduleSaveProgress();
+}
+
+function rewindSeconds(seconds) {
+  if (!words.length) return;
+  const wordsBack = Math.max(1, Math.round((wpm / 60) * seconds));
+  jumpWords(-wordsBack);
+}
+
 function stepWord(direction) {
   if (!words.length) return;
 
@@ -442,7 +627,7 @@ function stepWord(direction) {
     currentIndex += 1;
   }
 
-  renderWord(words[currentIndex] || "");
+  renderWordAtIndex(currentIndex);
   updateStats();
   scheduleSaveProgress();
 }
@@ -485,12 +670,45 @@ function setPlayingState(nextState) {
   updateLiveWpm();
 }
 
+function beginSession() {
+  if (!activeDoc || sessionStartAt) {
+    return;
+  }
+  sessionStartAt = Date.now();
+  activeDoc.sessions = (activeDoc.sessions || 0) + 1;
+  activeDoc.lastReadAt = Date.now();
+  updateHistoryPanel();
+  scheduleSaveProgress(true);
+}
+
+function endSession() {
+  if (!activeDoc || !sessionStartAt) {
+    return;
+  }
+  const duration = Date.now() - sessionStartAt;
+  sessionStartAt = null;
+  activeDoc.totalReadMs = (activeDoc.totalReadMs || 0) + duration;
+  activeDoc.updatedAt = Date.now();
+  activeDoc.lastReadAt = Date.now();
+  dbPut(activeDoc).catch((error) => console.warn(error));
+  updateHistoryPanel();
+  scheduleLibraryRefresh();
+}
+
 function setPdfStatus(message, isError = false) {
   if (!pdfStatus) {
     return;
   }
   pdfStatus.textContent = message;
   pdfStatus.classList.toggle("error", isError);
+}
+
+function setEpubStatus(message, isError = false) {
+  if (!epubStatus) {
+    return;
+  }
+  epubStatus.textContent = message;
+  epubStatus.classList.toggle("error", isError);
 }
 
 function loadOcrScript() {
@@ -543,6 +761,29 @@ async function runOcrOnPage(page, pageNumber, totalPages) {
   return result.data && result.data.text ? result.data.text : "";
 }
 
+function extractSectionText(contents) {
+  if (!contents) {
+    return "";
+  }
+  if (typeof contents === "string") {
+    return parseHtmlToText(contents);
+  }
+  // epub.js returns a Document - check body first
+  if (contents.body && contents.body.textContent) {
+    return contents.body.textContent || "";
+  }
+  if (contents.documentElement && contents.documentElement.textContent) {
+    return contents.documentElement.textContent || "";
+  }
+  if (contents.textContent) {
+    return contents.textContent || "";
+  }
+  if (contents.ownerDocument && contents.ownerDocument.body) {
+    return contents.ownerDocument.body.textContent || "";
+  }
+  return "";
+}
+
 function getFocusIndex(word) {
   const letterIndexes = [];
   for (let i = 0; i < word.length; i += 1) {
@@ -576,6 +817,163 @@ function renderWord(word) {
   rightSpan.textContent = word.slice(focusIndex + 1);
 }
 
+function renderWordAtIndex(index) {
+  if (!words.length || index < 0 || index >= words.length) {
+    renderWord("");
+    return;
+  }
+  const word = words[index];
+  if (!word) {
+    renderWord("");
+    return;
+  }
+  renderWord(word);
+}
+
+function buildParagraphsData() {
+  if (!originalText) {
+    contextParagraphs = [];
+    return;
+  }
+  // Split into paragraphs (by double newline or single newline)
+  const rawParagraphs = originalText.split(/\n\s*\n|\n/).filter(p => p.trim());
+
+  let wordOffset = 0;
+  contextParagraphs = rawParagraphs.map((text, index) => {
+    const paraWords = tokenize(text);
+    const startIndex = wordOffset;
+    wordOffset += paraWords.length;
+    return {
+      text,
+      words: paraWords,
+      startIndex,
+      endIndex: wordOffset - 1,
+      index
+    };
+  });
+}
+
+function findParagraphIndexForWord(wordIndex) {
+  for (let i = 0; i < contextParagraphs.length; i++) {
+    const para = contextParagraphs[i];
+    if (wordIndex >= para.startIndex && wordIndex <= para.endIndex) {
+      return i;
+    }
+  }
+  return 0;
+}
+
+function renderContextView(highlightWordIndex) {
+  if (!contextView || !contextParagraphs.length) {
+    if (contextView) {
+      contextView.innerHTML = "<p><em>No context available</em></p>";
+    }
+    return;
+  }
+
+  const para = contextParagraphs[currentParagraphIndex];
+  if (!para) {
+    contextView.innerHTML = "<p><em>No context available</em></p>";
+    return;
+  }
+
+  // Determine which word to highlight within this paragraph
+  let localHighlight = -1;
+  if (highlightWordIndex >= para.startIndex && highlightWordIndex <= para.endIndex) {
+    localHighlight = highlightWordIndex - para.startIndex;
+  }
+
+  // Build HTML with highlighted word
+  const parts = [];
+  for (let i = 0; i < para.words.length; i++) {
+    if (i === localHighlight) {
+      parts.push(`<span class="highlight">${para.words[i]}</span>`);
+    } else {
+      parts.push(para.words[i]);
+    }
+  }
+  contextView.innerHTML = `<p>${parts.join(" ")}</p>`;
+
+  // Update nav button states
+  updateContextNavButtons();
+}
+
+function updateContextNavButtons() {
+  if (!prevParagraphBtn || !nextParagraphBtn) return;
+  prevParagraphBtn.disabled = currentParagraphIndex <= 0;
+  nextParagraphBtn.disabled = currentParagraphIndex >= contextParagraphs.length - 1;
+}
+
+function goToPrevParagraph() {
+  if (currentParagraphIndex > 0) {
+    currentParagraphIndex -= 1;
+    const para = contextParagraphs[currentParagraphIndex];
+    // Update currentIndex to first word of this paragraph (accounting for the +1 offset)
+    currentIndex = para.startIndex + 1;
+    renderContextView(para.startIndex);
+    updateStats();
+  }
+}
+
+function goToNextParagraph() {
+  if (currentParagraphIndex < contextParagraphs.length - 1) {
+    currentParagraphIndex += 1;
+    const para = contextParagraphs[currentParagraphIndex];
+    // Update currentIndex to first word of this paragraph (accounting for the +1 offset)
+    currentIndex = para.startIndex + 1;
+    renderContextView(para.startIndex);
+    updateStats();
+  }
+}
+
+function showContextView() {
+  if (!contextView || !contextToggle || !reader) return;
+
+  // Build paragraphs data and find current paragraph
+  buildParagraphsData();
+  const displayedIndex = hasStarted ? Math.max(0, currentIndex - 1) : currentIndex;
+  currentParagraphIndex = findParagraphIndexForWord(displayedIndex);
+
+  isContextViewActive = true;
+  renderContextView(displayedIndex);
+  contextView.classList.remove("hidden");
+  if (contextNav) contextNav.classList.remove("hidden");
+  reader.classList.add("context-view-active");
+  contextToggle.textContent = "Back to Focus";
+}
+
+function hideContextView() {
+  if (!contextView || !contextToggle || !reader) return;
+  isContextViewActive = false;
+  contextView.classList.add("hidden");
+  if (contextNav) contextNav.classList.add("hidden");
+  reader.classList.remove("context-view-active");
+  contextToggle.textContent = "Show Context";
+  // Update the word display to show current position
+  renderWordAtIndex(Math.max(0, currentIndex - 1));
+}
+
+function toggleContextView() {
+  if (isContextViewActive) {
+    hideContextView();
+  } else {
+    showContextView();
+  }
+}
+
+function updateContextToggleVisibility() {
+  if (!contextToggle) return;
+  // Show button when paused and we have words
+  if (!isPlaying && words.length > 0 && hasStarted) {
+    contextToggle.classList.remove("hidden");
+  } else {
+    contextToggle.classList.add("hidden");
+    if (isContextViewActive) {
+      hideContextView();
+    }
+  }
+}
+
 function getDelay(word) {
   const baseDelay = 60000 / wpm;
   if (/[.!?]$/.test(word)) {
@@ -602,7 +1000,7 @@ function scheduleNext() {
   updateAutoPace();
   updateLiveWpm();
   const word = words[currentIndex];
-  renderWord(word);
+  renderWordAtIndex(currentIndex);
   currentIndex += 1;
   updateStats();
   scheduleSaveProgress();
@@ -610,11 +1008,12 @@ function scheduleNext() {
 }
 
 async function startReading() {
-  if (isPdfLoading) {
-    renderWord("Loading PDF...");
+  if (isPdfLoading || isEpubLoading) {
+    renderWord("Loading file...");
     return;
   }
   if (!words.length) {
+    originalText = textInput.value;
     words = tokenize(textInput.value);
     currentIndex = 0;
     updateStats();
@@ -640,6 +1039,8 @@ async function startReading() {
   }
   hasStarted = true;
   setPlayingState(true);
+  updateContextToggleVisibility();
+  beginSession();
   scheduleNext();
 }
 
@@ -649,7 +1050,9 @@ function pauseReading() {
     window.clearTimeout(timerId);
     timerId = null;
   }
+  endSession();
   scheduleSaveProgress(true);
+  updateContextToggleVisibility();
 }
 
 function stopReading() {
@@ -673,6 +1076,14 @@ function resetReading() {
 function setControlsOpen(open) {
   readerControls.classList.toggle("closed", !open);
   toggleControlsBtn.textContent = open ? "Hide Controls" : "Show Controls";
+}
+
+function setCustomizeOpen(open) {
+  if (!customizePanel || !customizeBtn) {
+    return;
+  }
+  customizePanel.classList.toggle("closed", !open);
+  customizeBtn.textContent = open ? "Close" : "Customize";
 }
 
 function getFullscreenElement() {
@@ -823,6 +1234,8 @@ async function loadPdfFile(file) {
       doc.title = doc.title || baseTitle;
       doc.source = usedOcr ? "pdf-ocr" : doc.source || "pdf";
       doc.meta = { ...(doc.meta || {}), fileName: file.name };
+      doc.sessions = doc.sessions || 0;
+      doc.totalReadMs = doc.totalReadMs || 0;
     }
     applyDocumentState(doc);
     await dbPut(doc);
@@ -845,16 +1258,126 @@ async function loadPdfFile(file) {
   }
 }
 
+async function loadEpubFile(file) {
+  if (!file) {
+    setEpubStatus("No EPUB loaded");
+    return;
+  }
+  if (!epubjsLib || typeof epubjsLib !== "function") {
+    setEpubStatus("EPUB reader unavailable. Reload the page.", true);
+    return;
+  }
+  const isValidEpub = file.type === "application/epub+zip" ||
+    file.name.toLowerCase().endsWith(".epub");
+  if (!isValidEpub) {
+    setEpubStatus("Please select an EPUB file.", true);
+    return;
+  }
+  isEpubLoading = true;
+  if (epubInput) {
+    epubInput.disabled = true;
+  }
+  if (pdfInput) {
+    pdfInput.disabled = true;
+  }
+  pauseReading();
+  hasStarted = false;
+  renderWord("Loading EPUB...");
+  setEpubStatus(`Loading ${file.name}...`);
+
+  try {
+    const data = await file.arrayBuffer();
+    const book = epubjsLib(data);
+
+    // Wait for full book initialization - opened is required in epub.js 0.3.x
+    await book.opened;
+
+    const spine = book.spine;
+    const spineLength = spine.length || (spine.spineItems ? spine.spineItems.length : 0);
+    const sectionTexts = [];
+
+    for (let i = 0; i < spineLength; i += 1) {
+      const section = spine.get(i);
+      if (!section) {
+        continue;
+      }
+      if (section.linear === false) {
+        continue;
+      }
+      setEpubStatus(`Reading ${file.name} — section ${i + 1} of ${spineLength}`);
+      try {
+        const contents = await section.load(book.load.bind(book));
+        const sectionText = extractSectionText(contents);
+        if (sectionText && sectionText.trim()) {
+          sectionTexts.push(sectionText.trim());
+        }
+        section.unload();
+      } catch (sectionError) {
+        console.warn(`Failed to load section ${i}:`, sectionError);
+      }
+    }
+
+    const text = sectionTexts.join("\n");
+    if (!text.trim()) {
+      setEpubStatus(`${file.name} loaded, but no readable text found.`, true);
+      renderWord("No text found");
+      return;
+    }
+
+    const cleanedText = text.trim();
+    const baseTitle = file.name.replace(/\.epub$/i, "");
+    const docId = hashText(cleanedText);
+    let doc = await dbGet(docId);
+    if (!doc) {
+      doc = createDocumentFromText(cleanedText, {
+        title: baseTitle,
+        source: "epub",
+        meta: { fileName: file.name },
+      });
+    } else {
+      doc.text = cleanedText;
+      doc.wordCount = tokenize(cleanedText).length;
+      doc.updatedAt = Date.now();
+      doc.title = doc.title || baseTitle;
+      doc.source = doc.source || "epub";
+      doc.meta = { ...(doc.meta || {}), fileName: file.name };
+      doc.sessions = doc.sessions || 0;
+      doc.totalReadMs = doc.totalReadMs || 0;
+    }
+    applyDocumentState(doc);
+    await dbPut(doc);
+    setEpubStatus(`${file.name} loaded (${spineLength} sections)`);
+    if (book.destroy) {
+      book.destroy();
+    }
+  } catch (error) {
+    console.error(error);
+    setEpubStatus("Could not read that EPUB. Try another file.", true);
+    renderWord("EPUB load failed");
+  } finally {
+    isEpubLoading = false;
+    if (epubInput) {
+      epubInput.disabled = false;
+      epubInput.value = "";
+    }
+    if (pdfInput) {
+      pdfInput.disabled = false;
+    }
+  }
+}
+
 textInput.addEventListener("input", () => {
   if (isSettingText) {
     return;
   }
+  originalText = textInput.value;
   words = tokenize(textInput.value);
   currentIndex = 0;
   hasStarted = false;
   updateStats();
   if (words.length) {
-    renderWord(words[0]);
+    currentIndex = 0;
+    renderWordAtIndex(0);
   } else {
     renderWord("Paste text or upload a PDF");
   }
@@ -863,6 +1386,7 @@ textInput.addEventListener("input", () => {
     activeDoc = null;
   }
   updateReaderDocLabel();
+  updateHistoryPanel();
 });
 
 if (docTitle) {
@@ -888,6 +1412,17 @@ if (pdfInput) {
   });
 }
 
+if (epubInput) {
+  epubInput.addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) {
+      setEpubStatus("No EPUB loaded");
+      return;
+    }
+    loadEpubFile(file);
+  });
+}
+
 if (ocrToggle) {
   ocrToggle.addEventListener("change", () => {
     isOcrEnabled = Boolean(ocrToggle.checked);
@@ -896,6 +1431,32 @@ if (ocrToggle) {
     } else {
       setPdfStatus("OCR disabled");
     }
+  });
+}
+
+if (focusHighlightToggle) {
+  focusHighlightToggle.addEventListener("change", () => {
+    setFocusHighlightEnabled(focusHighlightToggle.checked);
+  });
+}
+
+if (focusColorPicker) {
+  focusColorPicker.addEventListener("input", () => {
+    setFocusColor(focusColorPicker.value);
+  });
+}
+
+if (focusColorButtons && focusColorButtons.length) {
+  focusColorButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const color = button.dataset.focusColor;
+      if (color) {
+        if (focusColorPicker) {
+          focusColorPicker.value = color;
+        }
+        setFocusColor(color);
+      }
+    });
   });
 }
 
@@ -922,6 +1483,7 @@ if (libraryList) {
           if (activeDoc && activeDoc.id === id) {
             activeDoc = null;
             updateReaderDocLabel();
+            updateHistoryPanel();
           }
           refreshLibrary();
         })
@@ -940,6 +1502,7 @@ if (clearLibraryBtn) {
         if (activeDoc) {
           activeDoc = null;
           updateReaderDocLabel();
+          updateHistoryPanel();
         }
         refreshLibrary();
       })
@@ -966,12 +1529,18 @@ if (inputPanel) {
   });
   inputPanel.addEventListener("drop", (event) => {
     const files = event.dataTransfer ? Array.from(event.dataTransfer.files || []) : [];
+    const epubFile = files.find((item) => item.type === "application/epub+zip" || /\.epub$/i.test(item.name));
     const pdfFile = files.find((item) => item.type === "application/pdf" || /\.pdf$/i.test(item.name));
-    if (!pdfFile) {
-      setPdfStatus("Drop a PDF file to load.", true);
+    if (epubFile) {
+      loadEpubFile(epubFile);
       return;
     }
-    loadPdfFile(pdfFile);
+    if (pdfFile) {
+      loadPdfFile(pdfFile);
+      return;
+    }
+    setPdfStatus("Drop a PDF or EPUB file to load.", true);
+    setEpubStatus("Drop a PDF or EPUB file to load.", true);
   });
 }
 
@@ -993,6 +1562,15 @@ actionButtons.forEach((button) => {
     if (action === "reset") {
       resetReading();
     }
+    if (action === "back10") {
+      jumpWords(-10);
+    }
+    if (action === "forward10") {
+      jumpWords(10);
+    }
+    if (action === "rewind3") {
+      rewindSeconds(3);
+    }
   });
 });
 
@@ -1000,6 +1578,13 @@ toggleControlsBtn.addEventListener("click", () => {
   const isClosed = readerControls.classList.contains("closed");
   setControlsOpen(isClosed);
 });
+
+if (customizeBtn) {
+  customizeBtn.addEventListener("click", () => {
+    const isClosed = customizePanel ? customizePanel.classList.contains("closed") : true;
+    setCustomizeOpen(isClosed);
+  });
+}
 
 fullscreenBtn.addEventListener("click", () => {
   const isActive =
@@ -1011,6 +1596,18 @@ fullscreenBtn.addEventListener("click", () => {
     enterFullscreen();
   }
 });
+
+if (contextToggle) {
+  contextToggle.addEventListener("click", toggleContextView);
+}
+
+if (prevParagraphBtn) {
+  prevParagraphBtn.addEventListener("click", goToPrevParagraph);
+}
+
+if (nextParagraphBtn) {
+  nextParagraphBtn.addEventListener("click", goToNextParagraph);
+}
 
 speedRange.addEventListener("input", (event) => {
   wpm = Number(event.target.value);
@@ -1037,11 +1634,29 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "ArrowLeft") {
     event.preventDefault();
-    stepWord("back");
+    if (isContextViewActive) {
+      goToPrevParagraph();
+    } else if (event.shiftKey) {
+      jumpWords(-10);
+    } else {
+      stepWord("back");
+    }
   }
   if (event.key === "ArrowRight") {
     event.preventDefault();
-    stepWord("forward");
+    if (isContextViewActive) {
+      goToNextParagraph();
+    } else if (event.shiftKey) {
+      jumpWords(10);
+    } else {
+      stepWord("forward");
+    }
+  }
+  if (event.key.toLowerCase() === "c" && !isPlaying && hasStarted) {
+    toggleContextView();
+  }
+  if (event.key === "Escape" && isContextViewActive) {
+    hideContextView();
   }
 });
 
@@ -1082,10 +1697,13 @@ if (maxPaceInput) {
 
 updateStats();
 updateDial();
+applyPrefs(loadPrefs());
 renderWord("Paste text or upload a PDF");
 updatePlayStateUI();
 setControlsOpen(false);
+setCustomizeOpen(false);
 updateReaderDocLabel();
+updateHistoryPanel();
 refreshLibrary();
 
 window.addEventListener("beforeunload", () => {

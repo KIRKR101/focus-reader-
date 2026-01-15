@@ -47,8 +47,26 @@
               <span class="reader-doc" id="readerDoc">No document loaded</span>
             </div>
             <div class="toolbar-actions">
+              <button id="customizeBtn" class="ghost">Customize</button>
               <button id="toggleControlsBtn" class="ghost">Controls</button>
               <button id="fullscreenBtn" class="ghost">Fullscreen</button>
+            </div>
+          </div>
+
+          <div class="customize-panel closed" id="customizePanel">
+            <div class="customize-group">
+              <p class="customize-title">Focus Letter</p>
+              <label class="toggle">
+                <input id="focusHighlightToggle" type="checkbox" checked />
+                <span>Highlight focus letter</span>
+              </label>
+              <div class="color-row">
+                <input id="focusColorPicker" type="color" value="#ff3b30" aria-label="Focus color" />
+                <button class="color-swatch" data-focus-color="#ff3b30" style="--swatch: #ff3b30;">Red</button>
+                <button class="color-swatch" data-focus-color="#ffffff" style="--swatch: #ffffff;">White</button>
+                <button class="color-swatch" data-focus-color="#36a3ff" style="--swatch: #36a3ff;">Blue</button>
+                <button class="color-swatch" data-focus-color="#32d74b" style="--swatch: #32d74b;">Green</button>
+              </div>
             </div>
           </div>
 
@@ -59,6 +77,12 @@
               <span class="word-focus"></span>
               <span class="word-right"></span>
             </div>
+            <div class="context-view hidden" id="contextView"></div>
+            <div class="context-nav hidden" id="contextNav">
+              <button class="context-nav-btn" id="prevParagraph">← Prev</button>
+              <button class="context-nav-btn" id="nextParagraph">Next →</button>
+            </div>
+            <button class="context-toggle hidden" id="contextToggle">Show Context</button>
             <p class="live-wpm" id="liveWpm"></p>
             <div class="auto-pace" id="autoPace">
               <label class="auto-pace-toggle">
@@ -83,6 +107,12 @@
               <button class="primary" data-action="start">Start</button>
               <button data-action="pause">Pause</button>
               <button data-action="reset">Restart</button>
+            </div>
+
+            <div class="reader-jump">
+              <button data-action="back10">-10</button>
+              <button data-action="rewind3">Rewind 3s</button>
+              <button data-action="forward10">+10</button>
             </div>
 
             <div class="speed-slider">
@@ -126,6 +156,12 @@
             <p class="file-status" id="pdfStatus">No PDF loaded</p>
           </div>
 
+          <div class="file-row">
+            <input id="epubInput" type="file" accept=".epub,application/epub+zip" />
+            <label class="file-button" for="epubInput">Upload EPUB</label>
+            <p class="file-status" id="epubStatus">No EPUB loaded</p>
+          </div>
+
           <label class="toggle">
             <input id="ocrToggle" type="checkbox" />
             <span>OCR scanned PDFs (slower, but reads image-only pages)</span>
@@ -138,7 +174,23 @@
           </div>
 
           <div class="hint">
-            Tip: <span>Space</span> start/pause · <span>R</span> reset · <span>← →</span> step through words
+            Tip: <span>Space</span> start/pause · <span>R</span> reset · <span>← →</span> step · <span>Shift + ← →</span> jump 10 · <span>C</span> context
+          </div>
+
+          <div class="history">
+            <p class="history-title">Progress History</p>
+            <div class="history-row">
+              <span>Last read</span>
+              <span id="historyLastRead">—</span>
+            </div>
+            <div class="history-row">
+              <span>Sessions</span>
+              <span id="historySessions">0</span>
+            </div>
+            <div class="history-row">
+              <span>Time spent</span>
+              <span id="historyTime">0m</span>
+            </div>
           </div>
 
           <div class="library">
@@ -157,6 +209,8 @@
       </main>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.88/dist/epub.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script src="app.js"></script>
   </body>

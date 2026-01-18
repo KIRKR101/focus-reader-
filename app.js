@@ -26,11 +26,15 @@ const ocrToggle = document.getElementById("ocrToggle");
 const libraryList = document.getElementById("libraryList");
 const libraryEmpty = document.getElementById("libraryEmpty");
 const clearLibraryBtn = document.getElementById("clearLibraryBtn");
+const addEntryBtn = document.getElementById("addEntryBtn");
+const inputSection = document.querySelector(".input-section");
+const uploadSection = document.querySelector(".upload-section");
 const historyLastRead = document.getElementById("historyLastRead");
 const historySessions = document.getElementById("historySessions");
 const historyTime = document.getElementById("historyTime");
 const dropOverlay = document.getElementById("dropOverlay");
 const inputPanel = document.querySelector(".input-panel");
+const librarySearch = document.getElementById("librarySearch");
 const pdfjsLib = window.pdfjsLib;
 const epubjsLib = window.ePub;
 const focusHighlightToggle = document.getElementById("focusHighlightToggle");
@@ -38,15 +42,22 @@ const focusColorPicker = document.getElementById("focusColorPicker");
 const focusColorButtons = document.querySelectorAll("[data-focus-color]");
 const autoPaceToggle = document.getElementById("autoPaceToggle");
 const autoPaceSettings = document.getElementById("autoPaceSettings");
+const autoPace = document.getElementById("autoPace");
+const autoPaceLabel = document.getElementById("autoPaceLabel");
+const closePaceSettings = document.getElementById("closePaceSettings");
 const startPaceInput = document.getElementById("startPace");
 const maxPaceInput = document.getElementById("maxPace");
 const liveWpmEl = document.getElementById("liveWpm");
-const contextView = document.getElementById("contextView");
 const contextToggle = document.getElementById("contextToggle");
-const contextNav = document.getElementById("contextNav");
-const prevParagraphBtn = document.getElementById("prevParagraph");
-const nextParagraphBtn = document.getElementById("nextParagraph");
 const reader = document.querySelector(".reader");
+
+// Modal Elements
+const contextModal = document.getElementById("contextModal");
+const modalContextBody = document.getElementById("modalContextBody");
+const closeContextModal = document.getElementById("closeContextModal");
+const modalCloseBtn = document.getElementById("modalCloseBtn");
+const modalPrevParagraph = document.getElementById("modalPrevParagraph");
+const modalNextParagraph = document.getElementById("modalNextParagraph");
 
 let words = [];
 let currentIndex = 0;
@@ -67,6 +78,7 @@ let ocrLoadingPromise = null;
 let isAutoPaceEnabled = false;
 let autoPaceStartWpm = 150;
 let autoPaceMaxWpm = 400;
+let autoPaceSessionStartIndex = 0;
 const AUTO_PACE_WORDS_PER_STEP = 25;
 let sessionStartAt = null;
 let focusHighlightEnabled = true;
@@ -373,37 +385,64 @@ function createDocumentFromText(text, options = {}) {
 }
 
 function applyDocumentState(doc, options = {}) {
-  if (activeDoc && sessionStartAt) {
+  if (activeDoc && sessionStartAt && (!doc || activeDoc.id !== doc.id)) {
     endSession();
   }
+  
+  const isSameDoc = activeDoc && doc && activeDoc.id === doc.id;
+  const textTitleChanged = doc && (doc.title !== (docTitle ? docTitle.value : ""));
+  const textContentChanged = doc && (doc.text !== originalText);
+
   activeDoc = doc;
   sessionStartAt = null;
+  
   if (activeDoc) {
     activeDoc.sessions = activeDoc.sessions || 0;
     activeDoc.totalReadMs = activeDoc.totalReadMs || 0;
+    
+    // Show controls section when a document is loaded
+    const controlsSection = document.querySelector('.controls-section');
+    if (controlsSection) {
+      controlsSection.classList.remove('hidden');
+    }
+  } else {
+    // Hide controls section when no document is loaded
+    const controlsSection = document.querySelector('.controls-section');
+    if (controlsSection) {
+      controlsSection.classList.add('hidden');
+    }
   }
-  if (docTitle && doc) {
+
+  if (docTitle && doc && (textTitleChanged || !isSameDoc)) {
     docTitle.value = doc.title || "";
   }
-  if (options.setText !== false && doc && typeof doc.text === "string") {
+
+  if (options.setText !== false && doc && typeof doc.text === "string" && (textContentChanged || !isSameDoc)) {
     isSettingText = true;
     textInput.value = doc.text;
     isSettingText = false;
   }
-  originalText = doc ? (doc.text || "") : "";
-  words = doc ? tokenize(doc.text || "") : [];
+
+  if (textContentChanged || !isSameDoc) {
+    originalText = doc ? (doc.text || "") : "";
+    words = doc ? tokenize(doc.text || "") : [];
+  }
+
   currentIndex = doc ? Math.min(doc.lastIndex || 0, words.length) : 0;
   updateStats();
+
   if (words.length) {
     renderWordAtIndex(currentIndex);
   } else {
     renderWord("");
   }
+
   if (doc && typeof doc.wpm === "number") {
     wpm = doc.wpm;
     speedRange.value = wpm.toString();
     updateDial();
   }
+
   updateReaderDocLabel();
   updateHistoryPanel();
   updatePlayStateUI();
@@ -417,7 +456,7 @@ function scheduleLibraryRefresh() {
   libraryRefreshTimer = window.setTimeout(() => {
     libraryRefreshTimer = null;
     refreshLibrary();
-  }, 400);
+  }, 100);
 }
 
 async function refreshLibrary() {
@@ -432,56 +471,78 @@ async function refreshLibrary() {
   }
   docs.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   libraryList.innerHTML = "";
-  if (!docs.length) {
-    libraryEmpty.style.display = "block";
+  const query = librarySearch ? librarySearch.value.toLowerCase().trim() : "";
+  const filteredDocs = docs.filter(doc => 
+    (doc.title || "Untitled").toLowerCase().includes(query) || 
+    (doc.text || "").toLowerCase().includes(query)
+  );
+
+  if (!filteredDocs.length) {
+    if (query) {
+      libraryEmpty.textContent = `No results found for "${query}"`;
+      libraryEmpty.style.display = "block";
+    } else {
+      libraryEmpty.textContent = "No saved documents yet.";
+      libraryEmpty.style.display = "block";
+    }
     return;
   }
   libraryEmpty.style.display = "none";
-  docs.forEach((doc) => {
+
+  filteredDocs.forEach((doc) => {
     const item = document.createElement("li");
     item.className = "library-item";
     if (activeDoc && doc.id === activeDoc.id) {
       item.classList.add("active");
     }
 
-    const info = document.createElement("div");
-    const name = document.createElement("p");
-    name.className = "library-name";
-    name.textContent = doc.title || "Untitled";
-    const meta = document.createElement("p");
-    meta.className = "library-meta";
     const progress = getProgressPercent(doc.lastIndex || 0, doc.wordCount || 0);
     const sessions = doc.sessions || 0;
     const timeSpent = formatDuration(doc.totalReadMs || 0);
-    meta.textContent = `${progress}% | ${doc.wordCount || 0} words | ${formatTimestamp(doc.lastReadAt)} | ${sessions} sessions | ${timeSpent}`;
-    info.appendChild(name);
-    info.appendChild(meta);
 
-    const actions = document.createElement("div");
-    actions.className = "library-actions";
+    // Create item content with the new structure
+    item.innerHTML = `
+      <div class="library-item-main">
+        <div class="library-info">
+          <p class="library-name">${doc.title || "Untitled"}</p>
+          <div class="library-meta">
+            <span>${progress}%</span>
+            <span>${doc.wordCount || 0} words</span>
+            <span>${formatTimestamp(doc.lastReadAt)}</span>
+          </div>
+          <div class="library-progress-container">
+            <div class="library-progress-bar" style="width: ${progress}%"></div>
+          </div>
+        </div>
+      </div>
+      <div class="library-actions">
+        <button data-doc-action="resume" data-doc-id="${doc.id}" class="${activeDoc && doc.id === activeDoc.id ? 'primary' : ''}">
+          <i data-lucide="${activeDoc && doc.id === activeDoc.id ? 'play-circle' : 'play'}" class="icon"></i>
+          <span>${activeDoc && doc.id === activeDoc.id ? 'Reading' : 'Resume'}</span>
+        </button>
+        <button data-doc-action="restart" data-doc-id="${doc.id}">
+          <i data-lucide="rotate-ccw" class="icon"></i>
+          <span>Restart</span>
+        </button>
+        <button data-doc-action="delete" data-doc-id="${doc.id}">
+          <i data-lucide="trash-2" class="icon"></i>
+        </button>
+      </div>
+    `;
 
-    const resumeButton = document.createElement("button");
-    resumeButton.textContent = "Resume";
-    resumeButton.dataset.docAction = "resume";
-    resumeButton.dataset.docId = doc.id;
-
-    const restartButton = document.createElement("button");
-    restartButton.textContent = "Restart";
-    restartButton.dataset.docAction = "restart";
-    restartButton.dataset.docId = doc.id;
-
-    const deleteButton = document.createElement("button");
-    deleteButton.textContent = "Delete";
-    deleteButton.dataset.docAction = "delete";
-    deleteButton.dataset.docId = doc.id;
-
-    actions.appendChild(resumeButton);
-    actions.appendChild(restartButton);
-    actions.appendChild(deleteButton);
-
-    item.appendChild(info);
-    item.appendChild(actions);
     libraryList.appendChild(item);
+  });
+
+  // Re-render Lucide icons after adding library items
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
+}
+
+// Add event listener for search
+if (librarySearch) {
+  librarySearch.addEventListener("input", () => {
+    refreshLibrary();
   });
 }
 
@@ -489,6 +550,14 @@ async function loadDocumentById(id, options = {}) {
   if (!id) {
     return;
   }
+  
+  // If we are already loading this document, don't restart process unless requested
+  if (activeDoc && activeDoc.id === id && !options.restart) {
+    // If it's already active, just ensure UI is updated
+    updatePlayStateUI();
+    return;
+  }
+
   const doc = await dbGet(id);
   if (!doc) {
     return;
@@ -636,8 +705,16 @@ function calculateAutoPaceWpm() {
   if (!isAutoPaceEnabled || !words.length) {
     return wpm;
   }
-  const totalWords = words.length;
-  const progress = currentIndex / totalWords;
+  
+  // Calculate progress based on words read in current session
+  // This ensures books and long articles ramp up at a natural speed.
+  const wordsRead = Math.max(0, currentIndex - autoPaceSessionStartIndex);
+  
+  // Ramp window: reach max speed after 1000 words (~3-5 mins of reading)
+  // or by the end of the text if it's shorter than 1000 words.
+  const rampWindow = Math.min(words.length, 1000);
+  const progress = rampWindow > 0 ? Math.min(1, wordsRead / rampWindow) : 1;
+  
   const wpmRange = autoPaceMaxWpm - autoPaceStartWpm;
   const newWpm = Math.round(autoPaceStartWpm + (wpmRange * progress));
   return Math.min(newWpm, autoPaceMaxWpm);
@@ -656,12 +733,35 @@ function updateAutoPace() {
 
 function updatePlayStateUI() {
   let label = "Pause";
-  if (!isPlaying && hasStarted) {
-    label = "Resume";
+  let iconName = "pause";
+  if (!isPlaying) {
+    label = hasStarted ? "Resume" : "Start";
+    iconName = "play";
   }
+
+  let needsIconRefresh = false;
+
   pauseButtons.forEach((button) => {
-    button.textContent = label;
+    // Update button text and icon
+    const span = button.querySelector("span");
+    const icon = button.querySelector("[data-lucide]");
+    if (span) {
+      span.textContent = label;
+    } else {
+      button.textContent = label;
+    }
+    if (icon) {
+      // Only update icon if it's different
+      if (icon.getAttribute("data-lucide") !== iconName) {
+        icon.setAttribute("data-lucide", iconName);
+        needsIconRefresh = true;
+      }
+    }
   });
+
+  if (needsIconRefresh && typeof lucide !== "undefined") {
+    lucide.createIcons();
+  }
 }
 
 function setPlayingState(nextState) {
@@ -887,16 +987,16 @@ function findParagraphIndexForWord(wordIndex) {
 }
 
 function renderContextView(highlightWordIndex) {
-  if (!contextView || !contextParagraphs.length) {
-    if (contextView) {
-      contextView.innerHTML = "<p><em>No context available</em></p>";
+  if (!modalContextBody || !contextParagraphs.length) {
+    if (modalContextBody) {
+      modalContextBody.innerHTML = "<p><em>No context available</em></p>";
     }
     return;
   }
 
   const para = contextParagraphs[currentParagraphIndex];
   if (!para) {
-    contextView.innerHTML = "<p><em>No context available</em></p>";
+    modalContextBody.innerHTML = "<p><em>No context available</em></p>";
     return;
   }
 
@@ -915,23 +1015,23 @@ function renderContextView(highlightWordIndex) {
       parts.push(para.words[i]);
     }
   }
-  contextView.innerHTML = `<p>${parts.join(" ")}</p>`;
+  modalContextBody.innerHTML = `<p>${parts.join(" ")}</p>`;
 
   // Update nav button states
   updateContextNavButtons();
 }
 
 function updateContextNavButtons() {
-  if (!prevParagraphBtn || !nextParagraphBtn) return;
-  prevParagraphBtn.disabled = currentParagraphIndex <= 0;
-  nextParagraphBtn.disabled = currentParagraphIndex >= contextParagraphs.length - 1;
+  if (!modalPrevParagraph || !modalNextParagraph) return;
+  modalPrevParagraph.disabled = currentParagraphIndex <= 0;
+  modalNextParagraph.disabled = currentParagraphIndex >= contextParagraphs.length - 1;
 }
 
 function goToPrevParagraph() {
   if (currentParagraphIndex > 0) {
     currentParagraphIndex -= 1;
     const para = contextParagraphs[currentParagraphIndex];
-    // Update currentIndex to first word of this paragraph (accounting for the +1 offset)
+    // Update currentIndex to first word of this paragraph
     currentIndex = para.startIndex + 1;
     renderContextView(para.startIndex);
     updateStats();
@@ -942,7 +1042,7 @@ function goToNextParagraph() {
   if (currentParagraphIndex < contextParagraphs.length - 1) {
     currentParagraphIndex += 1;
     const para = contextParagraphs[currentParagraphIndex];
-    // Update currentIndex to first word of this paragraph (accounting for the +1 offset)
+    // Update currentIndex to first word of this paragraph
     currentIndex = para.startIndex + 1;
     renderContextView(para.startIndex);
     updateStats();
@@ -950,28 +1050,31 @@ function goToNextParagraph() {
 }
 
 function showContextView() {
-  if (!contextView || !contextToggle || !reader) return;
-
-  // Build paragraphs data and find current paragraph
   buildParagraphsData();
+  
   const displayedIndex = hasStarted ? Math.max(0, currentIndex - 1) : currentIndex;
   currentParagraphIndex = findParagraphIndexForWord(displayedIndex);
 
   isContextViewActive = true;
   renderContextView(displayedIndex);
-  contextView.classList.remove("hidden");
-  if (contextNav) contextNav.classList.remove("hidden");
-  reader.classList.add("context-view-active");
-  contextToggle.textContent = "Back to Focus";
+  
+  if (contextModal) {
+    contextModal.classList.remove("hidden");
+    document.body.style.overflow = "hidden"; // Prevent bg scroll
+    
+    // Ensure Lucide icons are rendered in the modal
+    if (typeof lucide !== "undefined") {
+      lucide.createIcons();
+    }
+  }
 }
 
 function hideContextView() {
-  if (!contextView || !contextToggle || !reader) return;
+  if (!contextModal) return;
   isContextViewActive = false;
-  contextView.classList.add("hidden");
-  if (contextNav) contextNav.classList.add("hidden");
-  reader.classList.remove("context-view-active");
-  contextToggle.textContent = "Show Context";
+  contextModal.classList.add("hidden");
+  document.body.style.overflow = ""; // Restore bg scroll
+  
   // Update the word display to show current position
   renderWordAtIndex(Math.max(0, currentIndex - 1));
 }
@@ -1047,6 +1150,7 @@ async function startReading() {
   }
   if (isAutoPaceEnabled && !hasStarted) {
     wpm = autoPaceStartWpm;
+    autoPaceSessionStartIndex = currentIndex;
     updateDial();
   }
   const rawText = textInput.value.trim();
@@ -1098,7 +1202,19 @@ function resetReading() {
 
 function setControlsOpen(open) {
   readerControls.classList.toggle("closed", !open);
-  toggleControlsBtn.textContent = open ? "Hide Controls" : "Show Controls";
+  const span = toggleControlsBtn.querySelector("span");
+  const icon = toggleControlsBtn.querySelector("[data-lucide]");
+  if (span) {
+    span.textContent = open ? "Hide Controls" : "Show Controls";
+  } else {
+    toggleControlsBtn.textContent = open ? "Hide Controls" : "Show Controls";
+  }
+  if (icon) {
+    icon.setAttribute("data-lucide", open ? "x" : "sliders");
+    if (typeof lucide !== "undefined") {
+      lucide.createIcons();
+    }
+  }
 }
 
 function setCustomizeOpen(open) {
@@ -1106,7 +1222,19 @@ function setCustomizeOpen(open) {
     return;
   }
   customizePanel.classList.toggle("closed", !open);
-  customizeBtn.textContent = open ? "Close" : "Customize";
+  const span = customizeBtn.querySelector("span");
+  const icon = customizeBtn.querySelector("[data-lucide]");
+  if (span) {
+    span.textContent = open ? "Close" : "Customize";
+  } else {
+    customizeBtn.textContent = open ? "Close" : "Customize";
+  }
+  if (icon) {
+    icon.setAttribute("data-lucide", open ? "x" : "settings");
+    if (typeof lucide !== "undefined") {
+      lucide.createIcons();
+    }
+  }
 }
 
 function getFullscreenElement() {
@@ -1119,7 +1247,20 @@ function getFullscreenElement() {
 
 function setFullscreenState(active) {
   readerPanel.classList.toggle("fullscreen", active);
-  fullscreenBtn.textContent = active ? "Exit Fullscreen" : "Fullscreen";
+  const span = fullscreenBtn.querySelector("span");
+  const icon = fullscreenBtn.querySelector("i");
+  if (span) {
+    span.textContent = active ? "Exit Fullscreen" : "Fullscreen";
+  } else {
+    fullscreenBtn.textContent = active ? "Exit Fullscreen" : "Fullscreen";
+  }
+  if (icon) {
+    icon.setAttribute("data-lucide", active ? "minimize" : "maximize");
+    // Re-render the icon
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  }
   document.body.style.overflow = active ? "hidden" : "";
 }
 
@@ -1489,8 +1630,15 @@ if (libraryList) {
     if (!(target instanceof HTMLElement)) {
       return;
     }
-    const action = target.dataset.docAction;
-    const id = target.dataset.docId;
+    
+    // Use .closest to handle clicks on icons or spans within buttons
+    const button = target.closest("[data-doc-action]");
+    if (!button) {
+      return;
+    }
+    
+    const action = button.dataset.docAction;
+    const id = button.dataset.docId;
     if (!action || !id) {
       return;
     }
@@ -1514,6 +1662,214 @@ if (libraryList) {
     }
   });
 }
+
+if (addEntryBtn) {
+  addEntryBtn.addEventListener("click", () => {
+    const isHidden = inputSection.classList.contains("hidden");
+    const icon = addEntryBtn.querySelector("[data-lucide]");
+    if (isHidden) {
+      // Deactivate current book when adding new entry
+      activeDoc = null;
+      words = [];
+      currentIndex = 0;
+      hasStarted = false;
+      isPlaying = false;
+      renderWord("Paste text or upload a PDF");
+      updateStats();
+      updatePlayStateUI();
+      updateReaderDocLabel();
+      updateHistoryPanel();
+      
+      // Hide controls section
+      const controlsSection = document.querySelector('.controls-section');
+      if (controlsSection) {
+        controlsSection.classList.add('hidden');
+      }
+      
+      // Clear text input and title
+      textInput.value = "";
+      docTitle.value = "";
+      
+      // Show input sections with animation
+      inputSection.classList.remove("hidden");
+      uploadSection.classList.remove("hidden");
+      const span = addEntryBtn.querySelector("span");
+      if (span) {
+        span.textContent = "Hide Input";
+      } else {
+        addEntryBtn.textContent = "Hide Input";
+      }
+      
+      if (icon) {
+        icon.setAttribute("data-lucide", "x");
+      }
+      
+      // Add visual feedback
+      addEntryBtn.classList.add("active");
+      setTimeout(() => {
+        addEntryBtn.classList.remove("active");
+      }, 300);
+    } else {
+      // Hide input sections with animation
+      inputSection.classList.add("hidden");
+      uploadSection.classList.add("hidden");
+      const span = addEntryBtn.querySelector("span");
+      if (span) {
+        span.textContent = "Add Entry";
+      } else {
+        addEntryBtn.textContent = "Add Entry";
+      }
+      
+      if (icon) {
+        icon.setAttribute("data-lucide", "plus");
+      }
+    }
+    
+    if (icon && typeof lucide !== "undefined") {
+      lucide.createIcons();
+    }
+  });
+}
+
+// Add save button functionality
+function createSaveButton() {
+  const saveBtn = document.createElement("button");
+  saveBtn.id = "saveEntryBtn";
+  saveBtn.innerHTML = `<i data-lucide="save" class="icon"></i><span>Save Entry</span>`;
+  saveBtn.className = "primary";
+  saveBtn.style.marginTop = "12px";
+  saveBtn.addEventListener("click", async () => {
+    const rawText = textInput.value.trim();
+    if (!rawText) {
+      showNotification("Please enter some text to save", "error");
+      return;
+    }
+    
+    try {
+      saveBtn.disabled = true;
+      const span = saveBtn.querySelector("span");
+      if (span) {
+        span.textContent = "Saving...";
+      } else {
+        saveBtn.textContent = "Saving...";
+      }
+      
+      const doc = await ensureActiveDocumentFromText();
+      if (doc) {
+        showNotification("Entry saved successfully!", "success");
+        
+        // Hide input sections after saving
+        inputSection.classList.add("hidden");
+        uploadSection.classList.add("hidden");
+        if (addEntryBtn) {
+          const addSpan = addEntryBtn.querySelector("span");
+          const addIcon = addEntryBtn.querySelector("[data-lucide]");
+          if (addSpan) {
+            addSpan.textContent = "Add Entry";
+          } else {
+            addEntryBtn.textContent = "Add Entry";
+          }
+          if (addIcon) {
+            addIcon.setAttribute("data-lucide", "plus");
+            if (typeof lucide !== "undefined") lucide.createIcons();
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(error);
+      showNotification("Failed to save entry. Please try again.", "error");
+    } finally {
+      saveBtn.disabled = false;
+      const span = saveBtn.querySelector("span");
+      if (span) {
+        span.textContent = "Save Entry";
+      } else {
+        saveBtn.textContent = "Save Entry";
+      }
+    }
+  });
+  
+  return saveBtn;
+}
+
+// Create notification system
+function showNotification(message, type = "info") {
+  // Remove existing notifications
+  const existingNotification = document.querySelector(".notification");
+  if (existingNotification) {
+    existingNotification.remove();
+  }
+  
+  const notification = document.createElement("div");
+  notification.className = `notification notification-${type}`;
+  notification.textContent = message;
+  
+  // Style notification
+  Object.assign(notification.style, {
+    position: "fixed",
+    top: "20px",
+    right: "20px",
+    padding: "12px 20px",
+    borderRadius: "8px",
+    color: "#ffffff",
+    fontWeight: "600",
+    zIndex: "3000",
+    transform: "translateX(100%)",
+    transition: "transform 0.3s ease",
+    backgroundColor: type === "success" ? "#32d74b" : type === "error" ? "#ff3b30" : "#36a3ff"
+  });
+  
+  document.body.appendChild(notification);
+  
+  // Animate in
+  setTimeout(() => {
+    notification.style.transform = "translateX(0)";
+  }, 100);
+  
+  // Remove after 3 seconds
+  setTimeout(() => {
+    notification.style.transform = "translateX(100%)";
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.remove();
+      }
+    }, 300);
+  }, 3000);
+}
+
+// Add save button to input section
+document.addEventListener("DOMContentLoaded", () => {
+  const inputSection = document.querySelector(".input-section");
+  if (inputSection) {
+    const saveBtn = createSaveButton();
+    inputSection.appendChild(saveBtn);
+  }
+});
+
+// Add paste shortcut for faster text input
+document.addEventListener("keydown", (event) => {
+  if (event.ctrlKey || event.metaKey) {
+    // Ctrl/Cmd + N: New entry
+    if (event.key === "n" || event.key === "N") {
+      event.preventDefault();
+      if (addEntryBtn) {
+        const isHidden = inputSection.classList.contains("hidden");
+        if (isHidden) {
+          addEntryBtn.click();
+        }
+      }
+    }
+    // Ctrl/Cmd + S: Save entry (when input section is visible)
+    if (event.key === "s" || event.key === "S") {
+      const inputSection = document.querySelector(".input-section");
+      const saveBtn = document.getElementById("saveEntryBtn");
+      if (inputSection && !inputSection.classList.contains("hidden") && saveBtn) {
+        event.preventDefault();
+        saveBtn.click();
+      }
+    }
+  }
+});
 
 if (clearLibraryBtn) {
   clearLibraryBtn.addEventListener("click", () => {
@@ -1624,12 +1980,30 @@ if (contextToggle) {
   contextToggle.addEventListener("click", toggleContextView);
 }
 
-if (prevParagraphBtn) {
-  prevParagraphBtn.addEventListener("click", goToPrevParagraph);
+// Modal Event Listeners
+if (closeContextModal) {
+  closeContextModal.addEventListener("click", hideContextView);
 }
 
-if (nextParagraphBtn) {
-  nextParagraphBtn.addEventListener("click", goToNextParagraph);
+if (modalCloseBtn) {
+  modalCloseBtn.addEventListener("click", hideContextView);
+}
+
+if (modalPrevParagraph) {
+  modalPrevParagraph.addEventListener("click", goToPrevParagraph);
+}
+
+if (modalNextParagraph) {
+  modalNextParagraph.addEventListener("click", goToNextParagraph);
+}
+
+// Close modal on background click
+if (contextModal) {
+  contextModal.addEventListener("click", (event) => {
+    if (event.target === contextModal) {
+      hideContextView();
+    }
+  });
 }
 
 speedRange.addEventListener("input", (event) => {
@@ -1690,15 +2064,41 @@ document.addEventListener("msfullscreenchange", syncFullscreen);
 if (autoPaceToggle) {
   autoPaceToggle.addEventListener("change", () => {
     isAutoPaceEnabled = autoPaceToggle.checked;
-    autoPaceSettings.classList.toggle("visible", isAutoPaceEnabled);
+    
+    // Show settings when first enabled
     if (isAutoPaceEnabled) {
+      autoPaceSettings.classList.add("visible");
       autoPaceStartWpm = Number(startPaceInput.value) || 150;
       autoPaceMaxWpm = Number(maxPaceInput.value) || 400;
       if (!isPlaying && !hasStarted) {
         wpm = autoPaceStartWpm;
         updateDial();
       }
+    } else {
+      autoPaceSettings.classList.remove("visible");
     }
+  });
+}
+
+// Toggle settings when clicking the label area (if already enabled)
+if (autoPaceLabel) {
+  autoPaceLabel.addEventListener("click", (e) => {
+    // If clicking on the checkbox itself, let the 'change' event handle it
+    if (e.target === autoPaceToggle) return;
+    
+    // If enabled, toggle visibility on text click without disabling
+    if (autoPaceToggle.checked) {
+      e.preventDefault(); // Prevent checkbox from toggling
+      autoPaceSettings.classList.toggle("visible");
+    }
+  });
+}
+
+if (closePaceSettings) {
+  closePaceSettings.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    autoPaceSettings.classList.remove("visible");
   });
 }
 
@@ -1718,6 +2118,13 @@ if (maxPaceInput) {
   });
 }
 
+// Close auto-pace settings on outside click
+document.addEventListener("click", (event) => {
+  if (autoPaceSettings && autoPaceSettings.classList.contains("visible") && !autoPace.contains(event.target)) {
+    autoPaceSettings.classList.remove("visible");
+  }
+});
+
 updateStats();
 updateDial();
 applyPrefs(loadPrefs());
@@ -1735,3 +2142,18 @@ window.addEventListener("beforeunload", () => {
     ocrWorker = null;
   }
 });
+
+// Initialize Lucide icons
+if (typeof lucide !== 'undefined') {
+  lucide.createIcons();
+} else {
+  // Load Lucide dynamically if not available
+  const script = document.createElement('script');
+  script.src = 'https://unpkg.com/lucide@latest/dist/umd/lucide.js';
+  script.onload = () => {
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  };
+  document.head.appendChild(script);
+}

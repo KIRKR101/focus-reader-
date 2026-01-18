@@ -11,16 +11,18 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="https://unpkg.com/lucide@latest/dist/font/lucide.css" />
   </head>
   <body>
     <div class="app">
+      <!--       
       <a class="support-banner" href="https://x.com/iruletheworldmo" target="_blank" rel="noopener">
         Enjoying this? Subscribe on X <span>@iruletheworldmo</span> to see more fun projects
-      </a>
+      </a> 
+      -->
 
       <header class="hero">
         <div>
-          <p class="eyebrow">Reading Comprehension Trainer</p>
           <h1>Focus Reader</h1>
           <p class="subtitle">
             Paste anything, lock your gaze on the red letter, and let the words flow at
@@ -47,10 +49,19 @@
               <span class="reader-doc" id="readerDoc">No document loaded</span>
             </div>
             <div class="toolbar-actions">
-              <button id="customizeBtn" class="ghost">Customize</button>
-              <button id="toggleControlsBtn" class="ghost">Controls</button>
-              <button id="fullscreenBtn" class="ghost">Fullscreen</button>
-            </div>
+                <button id="customizeBtn" class="ghost">
+                  <i data-lucide="settings" class="icon"></i>
+                  <span>Customize</span>
+                </button>
+                <button id="toggleControlsBtn" class="ghost">
+                  <i data-lucide="sliders" class="icon"></i>
+                  <span>Controls</span>
+                </button>
+                <button id="fullscreenBtn" class="ghost">
+                  <i data-lucide="maximize" class="icon"></i>
+                  <span>Fullscreen</span>
+                </button>
+              </div>
           </div>
 
           <div class="customize-panel closed" id="customizePanel">
@@ -77,42 +88,34 @@
               <span class="word-focus"></span>
               <span class="word-right"></span>
             </div>
-            <div class="context-view hidden" id="contextView"></div>
-            <div class="context-nav hidden" id="contextNav">
-              <button class="context-nav-btn" id="prevParagraph">← Prev</button>
-              <button class="context-nav-btn" id="nextParagraph">Next →</button>
-            </div>
-            <button class="context-toggle hidden" id="contextToggle">Show Context</button>
             <p class="live-wpm" id="liveWpm"></p>
-            <div class="auto-pace" id="autoPace">
-              <label class="auto-pace-toggle">
-                <input type="checkbox" id="autoPaceToggle" />
-                <span>Auto Pace</span>
-              </label>
-              <div class="auto-pace-settings" id="autoPaceSettings">
-                <div class="pace-field">
-                  <label>Start</label>
-                  <input type="number" id="startPace" value="150" min="60" max="900" step="10" />
-                </div>
-                <div class="pace-field">
-                  <label>Max</label>
-                  <input type="number" id="maxPace" value="400" min="60" max="900" step="10" />
-                </div>
-              </div>
-            </div>
           </div>
 
           <div class="reader-controls" id="readerControls">
             <div class="controls-centered">
-              <button class="primary" data-action="start">Start</button>
-              <button data-action="pause">Pause</button>
-              <button data-action="reset">Restart</button>
+              <button class="primary" data-action="pause">
+                <i data-lucide="play" class="icon"></i>
+                <span>Start</span>
+              </button>
+              <button data-action="reset">
+                <i data-lucide="rotate-ccw" class="icon"></i>
+                <span>Restart</span>
+              </button>
             </div>
 
             <div class="reader-jump">
-              <button data-action="back10">-10</button>
-              <button data-action="rewind3">Rewind 3s</button>
-              <button data-action="forward10">+10</button>
+              <button data-action="back10">
+                <i data-lucide="skip-back" class="icon"></i>
+                <span>-10</span>
+              </button>
+              <button data-action="rewind3">
+                <i data-lucide="rewind" class="icon"></i>
+                <span>Rewind 3s</span>
+              </button>
+              <button data-action="forward10">
+                <i data-lucide="skip-forward" class="icon"></i>
+                <span>+10</span>
+              </button>
             </div>
 
             <div class="speed-slider">
@@ -132,52 +135,141 @@
             </div>
             <p class="wpm-display"><span id="wpmValue">300</span> WPM</p>
           </div>
+
+          <div class="reader-options-bar">
+            <button class="context-toggle hidden" id="contextToggle">
+              <i data-lucide="book-open" class="icon"></i>
+              <span>Show Context</span>
+            </button>
+
+            <div class="auto-pace" id="autoPace">
+              <label class="auto-pace-toggle" id="autoPaceLabel">
+                <input type="checkbox" id="autoPaceToggle" />
+                <span>Auto Pace</span>
+                <i data-lucide="chevron-up" class="icon settings-chevron"></i>
+              </label>
+              <div class="auto-pace-settings" id="autoPaceSettings">
+                <div class="auto-pace-settings-header">
+                  <p>Auto-Pace Settings</p>
+                  <button class="ghost close-settings" id="closePaceSettings">
+                    <i data-lucide="x" class="icon"></i>
+                  </button>
+                </div>
+                <div class="auto-pace-fields">
+                  <div class="pace-field">
+                    <label>Start</label>
+                    <input type="number" id="startPace" value="150" min="60" max="900" step="10" />
+                  </div>
+                  <div class="pace-field">
+                    <label>Max</label>
+                    <input type="number" id="maxPace" value="400" min="60" max="900" step="10" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Context Modal -->
+          <div class="modal-overlay hidden" id="contextModal">
+            <div class="modal">
+              <div class="modal-header">
+                <h2>Reading Context</h2>
+                <button class="ghost close-modal" id="closeContextModal">
+                  <i data-lucide="x" class="icon"></i>
+                </button>
+              </div>
+              <div class="modal-body" id="modalContextBody">
+                <!-- Context text will be injected here -->
+              </div>
+              <div class="modal-footer">
+                <div class="modal-nav">
+                  <button class="ghost" id="modalPrevParagraph">
+                    <i data-lucide="chevron-left" class="icon"></i>
+                    <span>Previous</span>
+                  </button>
+                  <button class="ghost" id="modalNextParagraph">
+                    <span>Next</span>
+                    <i data-lucide="chevron-right" class="icon"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section class="panel input-panel">
-          <div class="field">
-            <label for="docTitle">Document title</label>
-            <input
-              id="docTitle"
-              type="text"
-              placeholder="Give this document a name"
-            />
+          <!-- Controls Section -->
+          <div class="controls-section hidden">
+            <div class="controls">
+              <button id="pauseBtn" class="primary" data-action="pause">
+                <i data-lucide="play" class="icon"></i>
+                <span>Start</span>
+              </button>
+              <button id="resetBtn" data-action="reset">
+                <i data-lucide="rotate-ccw" class="icon"></i>
+                <span>Reset</span>
+              </button>
+            </div>
+
+            <div class="hint">
+              Tip: <span>Space</span> start/pause · <span>R</span> reset · <span>← →</span> step · <span>Shift + ← →</span> jump 10 · <span>C</span> context
+            </div>
           </div>
 
-          <label for="textInput">Paste your text or upload a PDF</label>
-          <textarea
-            id="textInput"
-            placeholder="Drop anything here — articles, notes, books."
-          ></textarea>
+          <!-- Document Input Section -->
+          <div class="input-section hidden">
+            <div class="field">
+              <label for="docTitle">Document title</label>
+              <input
+                id="docTitle"
+                type="text"
+                placeholder="Give this document a name (optional)"
+              />
+            </div>
 
-          <div class="file-row">
-            <input id="pdfInput" type="file" accept="application/pdf" />
-            <label class="file-button" for="pdfInput">Upload PDF</label>
-            <p class="file-status" id="pdfStatus">No PDF loaded</p>
+            <div class="field">
+              <label for="textInput">Paste your text</label>
+              <textarea
+                id="textInput"
+                placeholder="Drop anything here — articles, notes, books. Press Ctrl+V to paste text quickly."
+              ></textarea>
+            </div>
+            
+            <div class="input-hints">
+              <p class="hint-text">Quick tips: Press <span class="key">Ctrl+N</span> to create a new entry, <span class="key">Ctrl+S</span> to save, or drag and drop files directly into this area.</p>
+            </div>
           </div>
 
-          <div class="file-row">
-            <input id="epubInput" type="file" accept=".epub,application/epub+zip" />
-            <label class="file-button" for="epubInput">Upload EPUB</label>
-            <p class="file-status" id="epubStatus">No EPUB loaded</p>
+          <!-- File Upload Section -->
+          <div class="upload-section hidden">
+            <p class="section-title">Or upload a file</p>
+            
+            <div class="file-row">
+              <input id="pdfInput" type="file" accept="application/pdf" />
+              <label class="file-button" for="pdfInput">
+                <span class="file-icon">📄</span>
+                Upload PDF
+              </label>
+              <p class="file-status" id="pdfStatus">No PDF loaded</p>
+            </div>
+
+            <div class="file-row">
+              <input id="epubInput" type="file" accept=".epub,application/epub+zip" />
+              <label class="file-button" for="epubInput">
+                <span class="file-icon">📖</span>
+                Upload EPUB
+              </label>
+              <p class="file-status" id="epubStatus">No EPUB loaded</p>
+            </div>
+
+            <label class="toggle">
+              <input id="ocrToggle" type="checkbox" />
+              <span>OCR scanned PDFs (slower, but reads image-only pages)</span>
+            </label>
           </div>
 
-          <label class="toggle">
-            <input id="ocrToggle" type="checkbox" />
-            <span>OCR scanned PDFs (slower, but reads image-only pages)</span>
-          </label>
-
-          <div class="controls">
-            <button id="startBtn" class="primary" data-action="start">Start</button>
-            <button id="pauseBtn" data-action="pause">Pause</button>
-            <button id="resetBtn" data-action="reset">Reset</button>
-          </div>
-
-          <div class="hint">
-            Tip: <span>Space</span> start/pause · <span>R</span> reset · <span>← →</span> step · <span>Shift + ← →</span> jump 10 · <span>C</span> context
-          </div>
-
-          <div class="history">
+          <!-- History Section -->
+          <div class="history-section">
             <p class="history-title">Progress History</p>
             <div class="history-row">
               <span>Last read</span>
@@ -193,20 +285,41 @@
             </div>
           </div>
 
-          <div class="library">
+          <!-- Library Section -->
+          <div class="library-section">
             <div class="library-header">
               <p class="library-title">Library</p>
-              <button id="clearLibraryBtn" class="ghost">Clear</button>
+              <div class="library-header-actions">
+                  <button id="addEntryBtn" class="ghost">
+                    <i data-lucide="plus" class="icon"></i>
+                    <span>Add Entry</span>
+                  </button>
+                  <button id="clearLibraryBtn" class="ghost">
+                    <i data-lucide="trash-2" class="icon"></i>
+                    <span>Clear</span>
+                  </button>
+                </div>
             </div>
+            
+            <div class="library-search-container">
+              <i data-lucide="search" class="icon search-icon"></i>
+              <input type="text" id="librarySearch" placeholder="Search your library..." aria-label="Search library" />
+            </div>
+
             <p class="library-empty" id="libraryEmpty">No saved documents yet.</p>
             <ul class="library-list" id="libraryList"></ul>
           </div>
 
           <div class="drop-overlay" id="dropOverlay">
-            Drop a PDF to load
+            <div class="drop-content">
+              <div class="drop-icon">📁</div>
+              <p>Drop a PDF or EPUB to load</p>
+            </div>
           </div>
         </section>
       </main>
+      
+
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>

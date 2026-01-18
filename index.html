@@ -228,6 +228,38 @@
             </div>
 
             <div class="field">
+              <label for="coverInput">Cover image (optional)</label>
+              <div class="cover-input-container">
+                <input id="coverInput" type="file" accept="image/*" />
+                <label class="file-button" for="coverInput">
+                  <i data-lucide="image" class="icon"></i>
+                  Upload Cover
+                </label>
+                <div class="cover-url-wrapper">
+                  <input 
+                    id="coverUrlInput" 
+                    type="text" 
+                    placeholder="Or paste image URL"
+                    class="cover-url-input"
+                  />
+                  <button id="loadCoverBtn" class="load-cover-btn">
+                    <i data-lucide="arrow-right" class="icon"></i>
+                  </button>
+                  <div id="coverLoading" class="cover-loading hidden">
+                    <div class="spinner"></div>
+                  </div>
+                </div>
+                <div id="coverPreviewContainer" class="cover-preview-container hidden">
+                  <img id="coverPreview" class="cover-preview" alt="Cover preview" />
+                  <button id="removeCoverBtn" class="remove-cover-btn">
+                    <i data-lucide="x" class="icon"></i>
+                    Remove Cover
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
               <label for="textInput">Paste your text</label>
               <textarea
                 id="textInput"
@@ -247,7 +279,7 @@
             <div class="file-row">
               <input id="pdfInput" type="file" accept="application/pdf" />
               <label class="file-button" for="pdfInput">
-                <span class="file-icon">📄</span>
+                <i data-lucide="file-text" class="icon"></i>
                 Upload PDF
               </label>
               <p class="file-status" id="pdfStatus">No PDF loaded</p>
@@ -256,7 +288,7 @@
             <div class="file-row">
               <input id="epubInput" type="file" accept=".epub,application/epub+zip" />
               <label class="file-button" for="epubInput">
-                <span class="file-icon">📖</span>
+                <i data-lucide="book" class="icon"></i>
                 Upload EPUB
               </label>
               <p class="file-status" id="epubStatus">No EPUB loaded</p>
@@ -312,7 +344,7 @@
 
           <div class="drop-overlay" id="dropOverlay">
             <div class="drop-content">
-              <div class="drop-icon">📁</div>
+              <div class="drop-icon"><i data-lucide="folder-open" class="icon"></i></div>
               <p>Drop a PDF or EPUB to load</p>
             </div>
           </div>

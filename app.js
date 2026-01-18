@@ -367,7 +367,7 @@ function createDocumentFromText(text, options = {}) {
   const docTitleValue = (options.title || "").trim();
   const derivedTitle = docTitleValue || deriveTitle(text);
   const docWords = tokenize(text);
-  return {
+  const doc = {
     id: hashText(text),
     title: derivedTitle || "Untitled",
     text,
@@ -382,6 +382,13 @@ function createDocumentFromText(text, options = {}) {
     totalReadMs: 0,
     meta: options.meta || {},
   };
+  
+  // Add custom cover if provided
+  if (options.cover) {
+    doc.cover = options.cover;
+  }
+  
+  return doc;
 }
 
 function applyDocumentState(doc, options = {}) {
@@ -500,9 +507,27 @@ async function refreshLibrary() {
     const sessions = doc.sessions || 0;
     const timeSpent = formatDuration(doc.totalReadMs || 0);
 
+    // Determine cover or icon
+    let coverHtml = '';
+    if (doc.cover) {
+      coverHtml = `<img src="${doc.cover}" alt="${doc.title || 'Cover'}" class="library-cover" />`;
+    } else {
+      // Default icon based on source type
+      let icon = 'file-text'; // Default for text
+      if (doc.source === 'pdf' || doc.source === 'pdf-ocr') {
+        icon = 'file-text';
+      } else if (doc.source === 'epub') {
+        icon = 'book-open';
+      }
+      coverHtml = `<div class="library-icon"><i data-lucide="${icon}" class="icon"></i></div>`;
+    }
+
     // Create item content with the new structure
     item.innerHTML = `
       <div class="library-item-main">
+        <div class="library-cover-container">
+          ${coverHtml}
+        </div>
         <div class="library-info">
           <p class="library-name">${doc.title || "Untitled"}</p>
           <div class="library-meta">
@@ -620,10 +645,19 @@ async function ensureActiveDocumentFromText() {
   } catch (error) {
     console.warn(error);
   }
-  if (!doc) {
+  
+  if (!doc && activeDoc) {
+    doc = createDocumentFromText(rawText, {
+      title: docTitle ? docTitle.value : activeDoc.title || "",
+      source: activeDoc.source || "paste",
+      cover: customCoverDataUrl || activeDoc.cover,
+      meta: activeDoc.meta || {},
+    });
+  } else if (!doc) {
     doc = createDocumentFromText(rawText, {
       title: docTitle ? docTitle.value : "",
       source: "paste",
+      cover: customCoverDataUrl,
     });
   } else {
     doc.text = rawText;
@@ -631,9 +665,21 @@ async function ensureActiveDocumentFromText() {
     if (docTitle && docTitle.value.trim()) {
       doc.title = docTitle.value.trim();
     }
+    if (customCoverDataUrl) {
+      doc.cover = customCoverDataUrl;
+    } else if (activeDoc && activeDoc.cover && !doc.cover) {
+      doc.cover = activeDoc.cover;
+    }
     doc.sessions = doc.sessions || 0;
     doc.totalReadMs = doc.totalReadMs || 0;
+    if (activeDoc && activeDoc.source) {
+      doc.source = activeDoc.source;
+    }
+    if (activeDoc && activeDoc.meta) {
+      doc.meta = activeDoc.meta;
+    }
   }
+  
   applyDocumentState(doc, { setText: false });
   await dbPut(doc);
   return doc;
@@ -1314,6 +1360,22 @@ function syncFullscreen() {
   }
 }
 
+async function extractPdfCover(pdf) {
+  try {
+    const firstPage = await pdf.getPage(1);
+    const viewport = firstPage.getViewport({ scale: 0.5 }); // Reduced size for cover
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const context = canvas.getContext("2d");
+    await firstPage.render({ canvasContext: context, viewport }).promise;
+    return canvas.toDataURL("image/jpeg", 0.7);
+  } catch (error) {
+    console.warn("Failed to extract PDF cover:", error);
+    return null;
+  }
+}
+
 async function loadPdfFile(file) {
   if (!file) {
     setPdfStatus("No PDF loaded");
@@ -1343,6 +1405,9 @@ async function loadPdfFile(file) {
     const pdf = await loadingTask.promise;
     const pageTexts = [];
     let usedOcr = false;
+
+    // Extract cover first
+    const cover = await extractPdfCover(pdf);
 
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       setPdfStatus(`Reading ${file.name} — page ${pageNumber} of ${pdf.numPages}`);
@@ -1401,8 +1466,17 @@ async function loadPdfFile(file) {
       doc.sessions = doc.sessions || 0;
       doc.totalReadMs = doc.totalReadMs || 0;
     }
+    
+    // Use custom cover if provided, otherwise use extracted cover
+    if (customCoverDataUrl) {
+      doc.cover = customCoverDataUrl;
+    } else if (cover) {
+      doc.cover = cover;
+      // Display extracted cover as preview
+      displayCoverPreview(cover);
+    }
+    
     applyDocumentState(doc);
-    await dbPut(doc);
     setPdfStatus(`${file.name} loaded (${pdf.numPages} pages)`);
   } catch (error) {
     console.error(error);
@@ -1419,6 +1493,29 @@ async function loadPdfFile(file) {
       pdfInput.disabled = false;
       pdfInput.value = "";
     }
+  }
+}
+
+async function extractEpubCover(book) {
+  try {
+    // Use epub.js built-in coverUrl method for reliable cover extraction
+    const coverUrl = await book.coverUrl();
+    if (coverUrl) {
+      // Fetch the cover image from the blob URL and convert to data URL
+      const response = await fetch(coverUrl);
+      if (response.ok) {
+        const blob = await response.blob();
+        const reader = new FileReader();
+        return new Promise((resolve) => {
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+      }
+    }
+    return null;
+  } catch (error) {
+    console.warn("Failed to extract EPUB cover:", error);
+    return null;
   }
 }
 
@@ -1455,6 +1552,8 @@ async function loadEpubFile(file) {
 
     // Wait for full book initialization - opened is required in epub.js 0.3.x
     await book.opened;
+
+    const cover = await extractEpubCover(book);
 
     const spine = book.spine;
     const spineLength = spine.length || (spine.spineItems ? spine.spineItems.length : 0);
@@ -1508,8 +1607,16 @@ async function loadEpubFile(file) {
       doc.sessions = doc.sessions || 0;
       doc.totalReadMs = doc.totalReadMs || 0;
     }
+    
+    // Use custom cover if provided, otherwise use extracted cover
+    if (customCoverDataUrl) {
+      doc.cover = customCoverDataUrl;
+    } else if (cover) {
+      doc.cover = cover;
+      displayCoverPreview(cover);
+    }
+    
     applyDocumentState(doc);
-    await dbPut(doc);
     setEpubStatus(`${file.name} loaded (${spineLength} sections)`);
     if (book.destroy) {
       book.destroy();
@@ -1686,9 +1793,10 @@ if (addEntryBtn) {
         controlsSection.classList.add('hidden');
       }
       
-      // Clear text input and title
+      // Clear text input, title, and cover
       textInput.value = "";
       docTitle.value = "";
+      removeCoverPreview();
       
       // Show input sections with animation
       inputSection.classList.remove("hidden");
@@ -1838,11 +1946,178 @@ function showNotification(message, type = "info") {
 }
 
 // Add save button to input section
+let customCoverDataUrl = null;
+
+function loadImageFromUrl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const maxWidth = 400;
+      const maxHeight = 600;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", 0.8));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function showLoadingSpinner() {
+  const coverLoading = document.getElementById("coverLoading");
+  const loadCoverBtn = document.getElementById("loadCoverBtn");
+  const coverPreview = document.getElementById("coverPreview");
+  
+  if (coverLoading) {
+    coverLoading.classList.remove("hidden");
+  }
+  if (loadCoverBtn) {
+    loadCoverBtn.style.visibility = "hidden";
+  }
+  if (coverPreview) {
+    coverPreview.style.display = "none";
+  }
+}
+
+function hideLoadingSpinner() {
+  const coverLoading = document.getElementById("coverLoading");
+  const loadCoverBtn = document.getElementById("loadCoverBtn");
+  const coverPreview = document.getElementById("coverPreview");
+  
+  if (coverLoading) {
+    coverLoading.classList.add("hidden");
+  }
+  if (loadCoverBtn) {
+    loadCoverBtn.style.visibility = "visible";
+  }
+  if (coverPreview) {
+    coverPreview.style.display = "block";
+  }
+}
+
+function displayCoverPreview(dataUrl) {
+  const coverPreview = document.getElementById("coverPreview");
+  const coverPreviewContainer = document.getElementById("coverPreviewContainer");
+  if (coverPreview && coverPreviewContainer) {
+    coverPreview.src = dataUrl;
+    coverPreviewContainer.classList.remove("hidden");
+    hideLoadingSpinner();
+  }
+}
+
+function removeCoverPreview() {
+  const coverPreviewContainer = document.getElementById("coverPreviewContainer");
+  const coverInput = document.getElementById("coverInput");
+  const coverUrlInput = document.getElementById("coverUrlInput");
+  if (coverPreviewContainer) {
+    coverPreviewContainer.classList.add("hidden");
+  }
+  if (coverInput) {
+    coverInput.value = "";
+  }
+  if (coverUrlInput) {
+    coverUrlInput.value = "";
+  }
+  customCoverDataUrl = null;
+  hideLoadingSpinner();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const inputSection = document.querySelector(".input-section");
   if (inputSection) {
     const saveBtn = createSaveButton();
     inputSection.appendChild(saveBtn);
+  }
+
+  // Cover input event listeners
+  const coverInput = document.getElementById("coverInput");
+  if (coverInput) {
+    coverInput.addEventListener("change", async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (file) {
+        try {
+          customCoverDataUrl = await readFileAsDataUrl(file);
+          displayCoverPreview(customCoverDataUrl);
+        } catch (error) {
+          console.warn("Failed to read image file:", error);
+          showNotification("Failed to load cover image", "error");
+        }
+      }
+    });
+  }
+
+  const coverUrlInput = document.getElementById("coverUrlInput");
+  const loadCoverBtn = document.getElementById("loadCoverBtn");
+  
+  async function loadCoverFromUrl() {
+    const url = coverUrlInput.value.trim();
+    if (!url) {
+      showNotification("Please enter a valid image URL", "error");
+      return;
+    }
+    
+    try {
+      // Disable button and show loading spinner
+      loadCoverBtn.disabled = true;
+      showLoadingSpinner();
+      
+      const coverPreviewContainer = document.getElementById("coverPreviewContainer");
+      if (coverPreviewContainer) {
+        coverPreviewContainer.classList.remove("hidden");
+      }
+      
+      customCoverDataUrl = await loadImageFromUrl(url);
+      displayCoverPreview(customCoverDataUrl);
+    } catch (error) {
+      console.warn("Failed to load image from URL:", error);
+      showNotification("Failed to load cover from URL", "error");
+      hideLoadingSpinner();
+      const coverPreviewContainer = document.getElementById("coverPreviewContainer");
+      if (coverPreviewContainer) {
+        coverPreviewContainer.classList.add("hidden");
+      }
+    } finally {
+      loadCoverBtn.disabled = false;
+    }
+  }
+  
+  if (loadCoverBtn) {
+    loadCoverBtn.addEventListener("click", loadCoverFromUrl);
+  }
+  
+  if (coverUrlInput) {
+    coverUrlInput.addEventListener("keypress", (event) => {
+      if (event.key === "Enter") {
+        loadCoverFromUrl();
+      }
+    });
+  }
+
+  const removeCoverBtn = document.getElementById("removeCoverBtn");
+  if (removeCoverBtn) {
+    removeCoverBtn.addEventListener("click", removeCoverPreview);
   }
 });
 
